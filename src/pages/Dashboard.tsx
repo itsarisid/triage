@@ -20,6 +20,7 @@ import { NeonPatternDefs, neonPatternId } from "@/components/NeonPatternDefs";
 import { useNeonCharts } from "@/hooks/use-neon-charts";
 import { cn } from "@/lib/utils";
 import { DrillDownDialog, type DrillDown } from "@/components/DrillDownDialog";
+import { lifecycleMetrics, isOpenStatus, isResolvedStatus } from "@/lib/bugLifecycle";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "hsl(var(--info))",
@@ -168,14 +169,17 @@ export default function Dashboard() {
 
   /* ---------------- Bug metrics ---------------- */
 
-  const counts = useMemo(() => ({
-    total: bugs.length,
-    critical: bugs.filter(b => b.severity === "critical").length,
-    open: bugs.filter(b => !["resolved", "closed"].includes(b.status)).length,
-    resolved: bugs.filter(b => b.status === "resolved" || b.status === "closed").length,
-  }), [bugs]);
+  const lifecycle = useMemo(() => lifecycleMetrics(bugs, logs), [bugs, logs]);
 
-  const resolutionRate = counts.total ? Math.round((counts.resolved / counts.total) * 100) : 0;
+  const counts = useMemo(() => ({
+    total: lifecycle.total,
+    critical: bugs.filter(b => b.severity === "critical").length,
+    open: lifecycle.open,
+    resolved: lifecycle.resolved + lifecycle.closed,
+  }), [bugs, lifecycle]);
+
+  const resolutionRate = lifecycle.resolutionRate;
+
 
   const statusData = useMemo(() => {
     const c: Record<string, number> = {};
@@ -189,25 +193,33 @@ export default function Dashboard() {
     Object.entries(STATUS_LABELS).map(([k, label]) => [k, { label, color: STATUS_COLORS[k] }])
   );
 
+  const severityScopeFn = useMemo(() => {
+    if (severityScope === "open") return (b: BugRow) => isOpenStatus(b.status);
+    if (severityScope === "resolved") return (b: BugRow) => isResolvedStatus(b.status);
+    if (severityScope === "reopened") return (b: BugRow) => lifecycle.reopenedBugIds.has(b.id);
+    return () => true;
+  }, [severityScope, lifecycle]);
+
+  const severityBugs = useMemo(() => bugs.filter(severityScopeFn), [bugs, severityScopeFn]);
+
   const severityData = useMemo(() => {
     const c: Record<string, number> = {};
-    bugs.forEach(b => { c[b.severity] = (c[b.severity] || 0) + 1; });
+    severityBugs.forEach(b => { c[b.severity] = (c[b.severity] || 0) + 1; });
     return Object.entries(SEVERITY_LABELS).map(([key, label]) => ({
       key, name: label, value: c[key] || 0, fill: SEVERITY_COLORS[key],
     }));
-  }, [bugs]);
+  }, [severityBugs]);
 
   const severityChartConfig: ChartConfig = Object.fromEntries(
     Object.entries(SEVERITY_LABELS).map(([k, label]) => [k, { label, color: SEVERITY_COLORS[k] }])
   );
 
   const bugTrend = useMemo(() => {
-    const resolvedStatuses = new Set(["resolved", "closed"]);
     const out: { date: string; created: number; backlog: number }[] = [];
     for (let i = 29; i >= 0; i--) {
       const day = startOfDay(subDays(new Date(), i));
       const created = bugs.filter(b => format(parseISO(b.created_at), "yyyy-MM-dd") === format(day, "yyyy-MM-dd")).length;
-      const backlog = bugs.filter(b => parseISO(b.created_at) <= day && !resolvedStatuses.has(b.status)).length;
+      const backlog = bugs.filter(b => parseISO(b.created_at) <= day && isOpenStatus(b.status)).length;
       out.push({ date: format(day, "MMM dd"), created, backlog });
     }
     return out;
@@ -218,7 +230,11 @@ export default function Dashboard() {
     backlog: { label: "Open backlog", color: "hsl(var(--warning))" },
   };
 
-  const resolutionGauge = [{ name: "Resolved", value: resolutionRate, fill: "hsl(var(--success))" }];
+  const resolutionGauge = [
+    { name: "Resolved", value: resolutionRate, fill: "hsl(var(--success))" },
+    { name: "Reopened", value: lifecycle.reopenRate, fill: "hsl(var(--warning))" },
+  ];
+
 
   /* ---------------- Activity / log metrics ---------------- */
 

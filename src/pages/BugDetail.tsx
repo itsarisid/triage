@@ -12,6 +12,10 @@ import { ArrowLeft, Loader2, Send, Paperclip, Download, Trash2, Upload } from "l
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { Tables, Enums } from "@/integrations/supabase/types";
 import { formatDistanceToNow, format } from "date-fns";
+import {
+  canTransition, transitionAction, reopenTarget, isResolvedStatus,
+  STATUS_LABEL, type BugStatus,
+} from "@/lib/bugLifecycle";
 
 type BugRow = Tables<"bugs">;
 type CommentRow = Tables<"comments">;
@@ -30,6 +34,7 @@ function actionLabel(a: string) {
 }
 
 const statusFlow: Enums<"bug_status">[] = ["new", "assigned", "in_progress", "testing", "resolved", "closed"];
+
 
 export default function BugDetail() {
   const { id } = useParams<{ id: string }>();
@@ -151,17 +156,33 @@ export default function BugDetail() {
 
   const updateStatus = async (newStatus: Enums<"bug_status">) => {
     if (!bug || !user) return;
+    const from = bug.status as BugStatus;
+    if (!canTransition(from, newStatus)) {
+      toast({
+        title: "Transition not allowed",
+        description: `${STATUS_LABEL[from]} → ${STATUS_LABEL[newStatus]} is not part of the bug lifecycle.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const action = transitionAction(from, newStatus);
     const { error } = await supabase.from("bugs").update({ status: newStatus }).eq("id", bug.id);
     if (error) {
       toast({ title: "Failed to update status", description: error.message, variant: "destructive" });
     } else {
       await supabase.from("activity_log").insert({
-        bug_id: bug.id, user_id: user.id, action: "status_change",
+        bug_id: bug.id, user_id: user.id, action,
         old_value: bug.status, new_value: newStatus,
       });
-      toast({ title: `Status updated to ${newStatus.replace("_", " ")}` });
+      toast({
+        title: action === "reopen" ? "Bug reopened"
+          : action === "close" ? "Bug closed"
+          : action === "resolve" ? "Bug marked resolved"
+          : `Status updated to ${STATUS_LABEL[newStatus]}`,
+      });
     }
   };
+
 
   const addComment = async () => {
     if (!newComment.trim() || !user || !bug) return;
@@ -381,24 +402,47 @@ export default function BugDetail() {
 
             {/* Right sidebar */}
             <div className="w-full lg:w-64 shrink-0">
-              {/* Status workflow */}
+              {/* Lifecycle state machine */}
               <div className="px-4 py-3 border-b border-border">
-                <p className="text-[12px] text-muted-foreground mb-2 font-medium">Status</p>
+                <p className="text-[12px] text-muted-foreground mb-2 font-medium">Lifecycle</p>
                 <div className="flex flex-wrap gap-1">
-                  {statusFlow.map((status) => (
+                  {statusFlow.map((status) => {
+                    const current = bug.status === status;
+                    const allowed = canTransition(bug.status as BugStatus, status);
+                    return (
+                      <Button
+                        key={status}
+                        variant={current ? "secondary" : "ghost"}
+                        size="sm"
+                        disabled={current || !allowed}
+                        title={current ? "Current state" : allowed ? `Move to ${STATUS_LABEL[status]}` : "Not allowed from current state"}
+                        onClick={() => updateStatus(status)}
+                        className="h-6 text-[11px] px-2"
+                      >
+                        {STATUS_LABEL[status]}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-1 mt-2">
+                  {isResolvedStatus(bug.status) ? (
                     <Button
-                      key={status}
-                      variant={bug.status === status ? "secondary" : "ghost"}
-                      size="sm"
-                      disabled={bug.status === status}
-                      onClick={() => updateStatus(status)}
-                      className="h-6 text-[11px] px-2"
+                      size="sm" variant="outline" className="h-6 text-[11px] px-2"
+                      onClick={() => updateStatus(reopenTarget(bug.status as BugStatus))}
                     >
-                      {status.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}
+                      Reopen
                     </Button>
-                  ))}
+                  ) : (
+                    <Button
+                      size="sm" variant="outline" className="h-6 text-[11px] px-2"
+                      onClick={() => updateStatus("closed")}
+                    >
+                      Close
+                    </Button>
+                  )}
                 </div>
               </div>
+
 
               {/* Properties */}
               <div className="px-4 py-3 space-y-3 text-[13px]">
