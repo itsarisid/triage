@@ -111,6 +111,7 @@ export type Database = {
           title: string
           tracking_id: string
           updated_at: string
+          workspace_id: string | null
         }
         Insert: {
           actual_behavior?: string | null
@@ -129,6 +130,7 @@ export type Database = {
           title: string
           tracking_id?: string
           updated_at?: string
+          workspace_id?: string | null
         }
         Update: {
           actual_behavior?: string | null
@@ -147,6 +149,7 @@ export type Database = {
           title?: string
           tracking_id?: string
           updated_at?: string
+          workspace_id?: string | null
         }
         Relationships: [
           {
@@ -154,6 +157,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bugs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -244,6 +254,8 @@ export type Database = {
           invited_by: string
           role: Database["public"]["Enums"]["app_role"]
           status: string
+          token: string | null
+          workspace_id: string | null
         }
         Insert: {
           created_at?: string
@@ -253,6 +265,8 @@ export type Database = {
           invited_by: string
           role?: Database["public"]["Enums"]["app_role"]
           status?: string
+          token?: string | null
+          workspace_id?: string | null
         }
         Update: {
           created_at?: string
@@ -262,8 +276,18 @@ export type Database = {
           invited_by?: string
           role?: Database["public"]["Enums"]["app_role"]
           status?: string
+          token?: string | null
+          workspace_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "invitations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notification_preferences: {
         Row: {
@@ -342,6 +366,7 @@ export type Database = {
           id: string
           name: string
           updated_at: string
+          workspace_id: string | null
         }
         Insert: {
           created_at?: string
@@ -350,6 +375,7 @@ export type Database = {
           id?: string
           name: string
           updated_at?: string
+          workspace_id?: string | null
         }
         Update: {
           created_at?: string
@@ -358,8 +384,17 @@ export type Database = {
           id?: string
           name?: string
           updated_at?: string
+          workspace_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "projects_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -379,11 +414,70 @@ export type Database = {
         }
         Relationships: []
       }
+      workspace_members: {
+        Row: {
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_members_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspaces: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          owner_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          owner_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          owner_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      accept_invitation: { Args: { _token: string }; Returns: string }
+      can_access_bug: {
+        Args: { _bug_id: string; _user_id: string }
+        Returns: boolean
+      }
+      create_workspace: { Args: { _name: string }; Returns: string }
       get_team_members: {
         Args: never
         Returns: {
@@ -401,6 +495,25 @@ export type Database = {
         }
         Returns: boolean
       }
+      invitation_preview: {
+        Args: { _token: string }
+        Returns: {
+          email: string
+          expires_at: string
+          status: string
+          workspace_name: string
+        }[]
+      }
+      is_workspace_admin: {
+        Args: { _user_id: string; _workspace_id: string }
+        Returns: boolean
+      }
+      is_workspace_member: {
+        Args: { _user_id: string; _workspace_id: string }
+        Returns: boolean
+      }
+      my_workspace_ids: { Args: never; Returns: string[] }
+      shares_workspace: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"

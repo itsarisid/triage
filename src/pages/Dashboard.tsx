@@ -77,6 +77,7 @@ export default function Dashboard() {
   const [tab, setTab] = useState<AnalyticsTab>("bugs");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState<string | null>(null);
+  const [severityScope, setSeverityScope] = useState<"all" | "open" | "resolved" | "reopened">("all");
   const [rangeKey, setRangeKey] = useState<RangeKey>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -553,15 +554,37 @@ export default function Dashboard() {
 
                 <div className="bg-background p-4">
                   <p className="text-[13px] font-medium mb-1">Severity distribution</p>
-                  <p className="text-[12px] text-muted-foreground mb-4">Click a slice to open the matching bugs</p>
-                  <ChartContainer config={severityChartConfig} className="h-[200px] w-full">
+                  <p className="text-[12px] text-muted-foreground mb-2">
+                    Lifecycle scope · click a slice to open the matching bugs
+                  </p>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {([
+                      { key: "all", label: `All (${lifecycle.total})` },
+                      { key: "open", label: `Open (${lifecycle.open})` },
+                      { key: "resolved", label: `Resolved & closed (${lifecycle.resolved + lifecycle.closed})` },
+                      { key: "reopened", label: `Reopened (${lifecycle.reopened})` },
+                    ] as const).map(s => (
+                      <Button
+                        key={s.key}
+                        size="sm"
+                        variant={severityScope === s.key ? "secondary" : "ghost"}
+                        className="h-6 text-[11px] px-2"
+                        onClick={() => setSeverityScope(s.key)}
+                      >
+                        {s.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <ChartContainer config={severityChartConfig} className="h-[180px] w-full">
                     <PieChart>
                       <ChartTooltip content={<ChartTooltipContent />} />
                       <Pie
                         data={severityData} dataKey="value" nameKey="name" cx="50%" cy="50%"
                         innerRadius={45} outerRadius={75} paddingAngle={2} className="cursor-pointer"
                         onClick={(d: { key?: string }) => d?.key && openBugs(
-                          `Bugs · ${SEVERITY_LABELS[d.key]} severity`, "Severity drill-down", (b) => b.severity === d.key
+                          `Bugs · ${SEVERITY_LABELS[d.key]} severity · ${severityScope}`,
+                          "Severity drill-down",
+                          (b) => b.severity === d.key && severityScopeFn(b)
                         )}
                       >
                         {severityData.map((entry, i) => (
@@ -576,6 +599,7 @@ export default function Dashboard() {
                     </PieChart>
                   </ChartContainer>
                 </div>
+
 
                 <div className="bg-background p-4">
                   <p className="text-[13px] font-medium mb-1">Reported vs open backlog</p>
@@ -600,20 +624,43 @@ export default function Dashboard() {
 
                 <div className="bg-background p-4">
                   <p className="text-[13px] font-medium mb-1">Resolution rate</p>
-                  <p className="text-[12px] text-muted-foreground mb-4">Resolved &amp; closed share of all bugs</p>
-                  <ChartContainer config={{ value: { label: "Resolved", color: "hsl(var(--success))" } }} className="h-[200px] w-full">
+                  <p className="text-[12px] text-muted-foreground mb-2">
+                    Lifecycle outcome · outer ring resolved &amp; closed, inner ring reopened
+                  </p>
+                  <ChartContainer
+                    config={{
+                      Resolved: { label: "Resolved", color: "hsl(var(--success))" },
+                      Reopened: { label: "Reopened", color: "hsl(var(--warning))" },
+                    }}
+                    className="h-[180px] w-full"
+                  >
                     <RadialBarChart
                       data={resolutionGauge} startAngle={90} endAngle={-270}
-                      innerRadius={62} outerRadius={90}
+                      innerRadius={45} outerRadius={90}
                     >
                       <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                      <RadialBar dataKey="value" background cornerRadius={2} fill="hsl(var(--success))" />
+                      <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                      <RadialBar
+                        dataKey="value" background cornerRadius={2} className="cursor-pointer"
+                        onClick={(d: { name?: string }) =>
+                          d?.name === "Reopened"
+                            ? openBugs("Bugs · reopened at least once", "Lifecycle drill-down", (b) => lifecycle.reopenedBugIds.has(b.id))
+                            : openBugs("Bugs · resolved & closed", "Lifecycle drill-down", (b) => isResolvedStatus(b.status))
+                        }
+                      >
+                        {resolutionGauge.map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} />
+                        ))}
+                      </RadialBar>
                       <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
                         className="fill-foreground text-2xl font-medium">
                         {`${resolutionRate}%`}
                       </text>
                     </RadialBarChart>
                   </ChartContainer>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {lifecycle.reopened} reopened ({lifecycle.reopenRate}%) · {lifecycle.open} still open
+                  </p>
                 </div>
               </div>
             )}
